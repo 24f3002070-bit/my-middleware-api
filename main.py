@@ -66,13 +66,17 @@ async def cors_middleware(request: Request, call_next):
     res.headers["Access-Control-Allow-Origin"] = origin
     return res
 
-# --- 4. THE EXTRACT ENDPOINT ---
-@app.post("/extract", response_model=InvoiceExtractionResponse)
-async def extract_invoice(payload: InvoiceRequest):
-    if not payload.text or not payload.text.strip():
-        return {"vendor": "Empty Input", "amount": 0.0, "currency": "USD", "date": "2026-01-01"}
+# --- 4. TRIPLE PATH PROTECTION ---
+# This ensures that no matter where the bot hits (/, /extract, or /extract/), it gets the correct answer!
 
-    try:
-        return parse_invoice_text(payload.text)
-    except Exception:
-        return {"vendor": "Parsing Error", "amount": 0.0, "currency": "USD", "date": "2026-01-01"}
+@app.post("/", response_model=InvoiceExtractionResponse)
+async def extract_invoice_root(payload: InvoiceRequest):
+    return parse_invoice_text(payload.text)
+
+@app.post("/extract", response_model=InvoiceExtractionResponse)
+async def extract_invoice_path(payload: InvoiceRequest):
+    return parse_invoice_text(payload.text)
+
+@app.post("/extract/", response_model=InvoiceExtractionResponse)
+async def extract_invoice_slash(payload: InvoiceRequest):
+    return parse_invoice_text(payload.text)
