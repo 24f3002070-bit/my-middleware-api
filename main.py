@@ -16,26 +16,31 @@ class InvoiceExtractionResponse(BaseModel):
 class InvoiceRequest(BaseModel):
     text: str
 
-# --- 2. EXTRACTION ENGINE ---
+# --- 2. SMART EXTRACTION ENGINE ---
 def parse_invoice_text(text: str) -> dict:
-    # Match YYYY-MM-DD
+    # 1. Extract Date (Matches YYYY-MM-DD)
     date_match = re.search(r'\b(202\d-\d{2}-\d{2})\b', text)
     extracted_date = date_match.group(1) if date_match else "2026-01-01"
 
-    # Match USD/EUR/GBP
+    # 2. Extract Currency (Matches USD/EUR/GBP)
     currency_match = re.search(r'\b(USD|EUR|GBP|INR|CAD|AUD)\b', text, re.IGNORECASE)
     extracted_currency = currency_match.group(1).upper() if currency_match else "USD"
 
-    # Match numeric amounts (e.g. 1234.56 or 50)
-    amount_match = re.search(r'\b(\d+(?:\.\d{1,2})?)\b', text)
-    extracted_amount = float(amount_match.group(1)) if amount_match else 0.0
+    # 3. Smart Amount Extractor
+    # First, try to find a number with a decimal point (e.g., 7737.63)
+    decimal_amount = re.search(r'\b(\d+\.\d{2})\b', text)
+    if decimal_amount:
+        extracted_amount = float(decimal_amount.group(1))
+    else:
+        # Fallback to any number if no decimal is found
+        any_amount = re.search(r'\b(\d+)\b', text)
+        extracted_amount = float(any_amount.group(1)) if any_amount else 0.0
 
-    # Look for common business suffixes to isolate vendor name
+    # 4. Extract Vendor
     vendor_match = re.search(r'\b([A-Za-z0-9\-]+(?:\s+[A-Za-z0-9\-]+){0,4}\s*(?:Industries|Ltd|Corp|Inc|Co|Company|Store|Shop|Limited)\b)', text, re.IGNORECASE)
     if vendor_match:
         extracted_vendor = vendor_match.group(1).strip()
     else:
-        # Fallback to extracting the first few words if no indicator matches
         words = text.split()
         extracted_vendor = " ".join(words[:3]) if words else "Unknown Vendor"
 
@@ -66,9 +71,7 @@ async def cors_middleware(request: Request, call_next):
     res.headers["Access-Control-Allow-Origin"] = origin
     return res
 
-# --- 4. TRIPLE PATH PROTECTION ---
-# This ensures that no matter where the bot hits (/, /extract, or /extract/), it gets the correct answer!
-
+# --- 4. MULTI-PATH ENDPOINTS ---
 @app.post("/", response_model=InvoiceExtractionResponse)
 async def extract_invoice_root(payload: InvoiceRequest):
     return parse_invoice_text(payload.text)
