@@ -28,7 +28,7 @@ async def engineering_middleware(request: Request, call_next):
         res.headers["Access-Control-Allow-Origin"] = origin
         res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         res.headers["Access-Control-Allow-Headers"] = "Content-Type, Idempotency-Key, X-Client-Id"
-        res.headers["Access-Control-Expose-Headers"] = "Retry-After"
+        res.headers["Access-Control-Expose-Headers"] = "*"  # Expose everything to the browser
         return res
 
     # Per-Client 10-Second Rate Limiter Window
@@ -39,15 +39,14 @@ async def engineering_middleware(request: Request, call_next):
         client_rate_tracker[client_id] = [t for t in client_rate_tracker[client_id] if now - t < 10]
         
         if len(client_rate_tracker[client_id]) >= LIMIT_R:
-            # BULLETPROOF FIX: Use a direct raw Response so headers are NEVER stripped or altered
             error_content = json.dumps({"detail": "Too Many Requests"})
             err_res = Response(content=error_content, status_code=429, media_type="application/json")
             
-            # Inject headers explicitly into the response header dictionary
+            # FORCE ALL RELEVANT HEADERS FOR BROWSER ACCESS
             err_res.headers["Retry-After"] = "10"
             err_res.headers["retry-after"] = "10"
             err_res.headers["Access-Control-Allow-Origin"] = origin
-            err_res.headers["Access-Control-Expose-Headers"] = "Retry-After, retry-after"
+            err_res.headers["Access-Control-Expose-Headers"] = "*"  # CRITICAL FIX: Forces the browser to show the Retry-After header
             return err_res
         
         client_rate_tracker[client_id].append(now)
@@ -58,7 +57,7 @@ async def engineering_middleware(request: Request, call_next):
         res = JSONResponse(status_code=500, content={"detail": "Internal Error"})
 
     res.headers["Access-Control-Allow-Origin"] = origin
-    res.headers["Access-Control-Expose-Headers"] = "Retry-After, retry-after"
+    res.headers["Access-Control-Expose-Headers"] = "*"  # Expose everything globally
     return res
 
 # 1. Idempotent order creation endpoint
