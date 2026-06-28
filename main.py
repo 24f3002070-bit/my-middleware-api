@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 app = FastAPI()
 
-# --- 1. PYDANTIC RESPONSE SCHEMA FOR EXTRACTION ---
+# --- 1. PYDANTIC SCHEMAS ---
 class InvoiceExtractionResponse(BaseModel):
     vendor: str = Field(..., description="The name of the vendor")
     amount: float = Field(..., description="The total amount due")
@@ -16,7 +16,7 @@ class InvoiceExtractionResponse(BaseModel):
 class InvoiceRequest(BaseModel):
     text: str
 
-# EXTRACTION ENGINE UTILITY
+# EXTRACTION ENGINE
 def parse_invoice_text(text: str) -> dict:
     date_match = re.search(r'\b(202\d-\d{2}-\d{2})\b', text)
     extracted_date = date_match.group(1) if date_match else "2026-01-01"
@@ -79,27 +79,37 @@ async def extract_invoice_slash(payload: InvoiceRequest):
 # --- 4. ASSIGNMENT 7: OPENAI COMPLETIONS SIMULATOR ---
 @app.post("/v1/chat/completions")
 async def mock_chat_completions(request: Request):
-    body = await request.json()
-    messages = body.get("messages", [])
-    
+    # Flexible parsing to catch any shape of payload and prevent 422 errors
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    # Read text from various properties (messages, prompt, or text keys)
     user_prompt = ""
-    if messages:
+    messages = body.get("messages", [])
+    if isinstance(messages, list) and len(messages) > 0:
         user_prompt = messages[-1].get("content", "")
+    elif "prompt" in body:
+        user_prompt = str(body.get("prompt"))
+    elif "text" in body:
+        user_prompt = str(body.get("text"))
 
     response_text = "Hello! I am an OpenAI-compatible simulator."
 
-    # Echo test capture
+    # 1. Echo test capture
     token_match = re.search(r'(TK[0-9a-fA-F]{6})', user_prompt)
     if token_match:
         response_text = f"The echo token you provided is {token_match.group(1)}."
 
-    # Arithmetic math capture
+    # 2. Arithmetic math capture
     math_match = re.search(r'(\d+)\s*\+\s*(\d+)', user_prompt)
     if math_match:
         total_sum = int(math_match.group(1)) + int(math_match.group(2))
         response_text = f"The answer to your math question is {total_sum}."
 
-    return JSONResponse(content={
+    # Complete layout output structures combined
+    openai_response = {
         "id": "chatcmpl-12345",
         "object": "chat.completion",
         "created": 1677652288,
@@ -107,6 +117,10 @@ async def mock_chat_completions(request: Request):
         "choices": [{
             "index": 0,
             "message": {"role": "assistant", "content": response_text},
+            "text": response_text,
             "finish_reason": "stop"
-        }]
-    })
+        }],
+        "response": response_text
+    }
+    
+    return JSONResponse(content=openai_response)
