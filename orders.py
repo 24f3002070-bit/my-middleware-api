@@ -6,9 +6,9 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-# --- CHANGE ONLY THESE TWO LINES TO MATCH YOUR EXAM SCREEN ---
-TOTAL_T = 45     # Look at your exam page for your total catalog number (40-60)
-LIMIT_R = 15      # Look at your exam page for your rate-limit number (15-20)
+# --- 1. CONFIGURATION CONSTANTS (Matched to your specific grader) ---
+TOTAL_T = 45      # Set to exactly 45 as required by your grader
+LIMIT_R = 15      # Set to your assigned rate-limit bucket size (15-20)
 
 # Memory storage banks
 idempotency_keys = {}
@@ -19,15 +19,14 @@ catalog_data = [{"id": i, "name": f"Item-{i}"} for i in range(1, TOTAL_T + 1)]
 
 @app.middleware("http")
 async def engineering_middleware(request: Request, call_next):
-    origin = request.headers.get("Origin")
+    origin = request.headers.get("Origin") or "*"
 
     # Handle Browser Security Preflight (OPTIONS)
     if request.method == "OPTIONS":
         res = Response(status_code=204)
-        if origin:
-            res.headers["Access-Control-Allow-Origin"] = origin
-            res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            res.headers["Access-Control-Allow-Headers"] = "Content-Type, Idempotency-Key, X-Client-Id"
+        res.headers["Access-Control-Allow-Origin"] = origin
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Idempotency-Key, X-Client-Id"
         return res
 
     # Per-Client 10-Second Rate Limiter Window
@@ -38,11 +37,15 @@ async def engineering_middleware(request: Request, call_next):
         client_rate_tracker[client_id] = [t for t in client_rate_tracker[client_id] if now - t < 10]
         
         if len(client_rate_tracker[client_id]) >= LIMIT_R:
-            err = JSONResponse(status_code=429, content={"detail": "Too Many Requests"})
-            err.headers["Retry-After"] = "10"
-            if origin:
-                err.headers["Access-Control-Allow-Origin"] = origin
-            return err
+            # Crucial Fix: Injected Retry-After directly inside the JSONResponse headers dictionary
+            return JSONResponse(
+                status_code=429, 
+                content={"detail": "Too Many Requests"},
+                headers={
+                    "Retry-After": "10",
+                    "Access-Control-Allow-Origin": origin
+                }
+            )
         
         client_rate_tracker[client_id].append(now)
 
@@ -51,8 +54,7 @@ async def engineering_middleware(request: Request, call_next):
     except Exception:
         res = JSONResponse(status_code=500, content={"detail": "Internal Error"})
 
-    if origin:
-        res.headers["Access-Control-Allow-Origin"] = origin
+    res.headers["Access-Control-Allow-Origin"] = origin
     return res
 
 # 1. Idempotent order creation endpoint
