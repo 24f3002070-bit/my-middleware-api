@@ -1,14 +1,15 @@
 import time
 import uuid
+import json
 from collections import defaultdict
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-# --- 1. CONFIGURATION CONSTANTS (Matched to your specific grader) ---
-TOTAL_T = 45      # Set to exactly 45 as required by your grader
-LIMIT_R = 15      # Set to your assigned rate-limit bucket size (15-20)
+# --- 1. CONFIGURATION CONSTANTS ---
+TOTAL_T = 45      # Matched to your exact catalog size requirement
+LIMIT_R = 15      # Your assigned rate-limit bucket size
 
 # Memory storage banks
 idempotency_keys = {}
@@ -27,25 +28,27 @@ async def engineering_middleware(request: Request, call_next):
         res.headers["Access-Control-Allow-Origin"] = origin
         res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         res.headers["Access-Control-Allow-Headers"] = "Content-Type, Idempotency-Key, X-Client-Id"
+        res.headers["Access-Control-Expose-Headers"] = "Retry-After"
         return res
 
     # Per-Client 10-Second Rate Limiter Window
     client_id = request.headers.get("X-Client-Id")
-    if client_id:
+    if client_id and request.url.path == "/orders":
         now = time.time()
         # Clean up old tracking timestamps
         client_rate_tracker[client_id] = [t for t in client_rate_tracker[client_id] if now - t < 10]
         
         if len(client_rate_tracker[client_id]) >= LIMIT_R:
-            # Crucial Fix: Injected Retry-After directly inside the JSONResponse headers dictionary
-            return JSONResponse(
-                status_code=429, 
-                content={"detail": "Too Many Requests"},
-                headers={
-                    "Retry-After": "10",
-                    "Access-Control-Allow-Origin": origin
-                }
-            )
+            # BULLETPROOF FIX: Use a direct raw Response so headers are NEVER stripped or altered
+            error_content = json.dumps({"detail": "Too Many Requests"})
+            err_res = Response(content=error_content, status_code=429, media_type="application/json")
+            
+            # Inject headers explicitly into the response header dictionary
+            err_res.headers["Retry-After"] = "10"
+            err_res.headers["retry-after"] = "10"
+            err_res.headers["Access-Control-Allow-Origin"] = origin
+            err_res.headers["Access-Control-Expose-Headers"] = "Retry-After, retry-after"
+            return err_res
         
         client_rate_tracker[client_id].append(now)
 
@@ -55,6 +58,7 @@ async def engineering_middleware(request: Request, call_next):
         res = JSONResponse(status_code=500, content={"detail": "Internal Error"})
 
     res.headers["Access-Control-Allow-Origin"] = origin
+    res.headers["Access-Control-Expose-Headers"] = "Retry-After, retry-after"
     return res
 
 # 1. Idempotent order creation endpoint
