@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 app = FastAPI()
 
 # --- CHANGE ONLY THESE TWO LINES TO MATCH YOUR EXAM SCREEN ---
-TOTAL_T = 50      # Look at your exam page for your total catalog number (40-60)
+TOTAL_T = 45     # Look at your exam page for your total catalog number (40-60)
 LIMIT_R = 15      # Look at your exam page for your rate-limit number (15-20)
 
 # Memory storage banks
